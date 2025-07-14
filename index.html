@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Campo Eléctrico Interactivo</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <style>
+        body { 
+            background-color: #121212; 
+            color: white; 
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        #container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4fc3f7;
+            text-align: center;
+        }
+        #loading-message {
+            text-align: center;
+            margin: 20px;
+            font-style: italic;
+            color: #aaa;
+        }
+        #plot-container {
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <h1>Simulador de Campo Eléctrico</h1>
+        <div id="loading-message">Cargando entorno Python... Esto puede tomar unos segundos.</div>
+        <div id="plot-container"></div>
+    </div>
+
+    <script type="text/javascript">
+        async function main() {
+            // Mostrar mensaje de carga
+            const loadingMessage = document.getElementById("loading-message");
+            
+            // Inicializar Pyodide
+            let pyodide = await loadPyodide({
+                indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/"
+            });
+            
+            loadingMessage.textContent = "Instalando paquetes necesarios...";
+            
+            // Instalar paquetes requeridos
+            await pyodide.loadPackage(["numpy", "matplotlib"]);
+            
+            loadingMessage.textContent = "Configurando simulador...";
+            
+            // Tu código Python adaptado
+            const code = `
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
+from matplotlib.patches import Rectangle
+from js import document
+
+# Configuración de estilo para fondo oscuro
+plt.style.use('dark_background')
+
+# Constante de Coulomb
+k = 9e9  # Nm^2/C^2
+
+# Posiciones fijas de las 4 cargas
+posiciones = [
+    [-1.0, -1.0],
+    [1.0, -1.0],
+    [1.0, 1.0],
+    [-1.0, 1.0]
+]
+
+# Cargas iniciales
+cargas_valores = [1.0, -1.0, 1.0, -1.0]
+
+def calcular_fuerzas_totales(xq, yq, q_vals):
+    F_total = np.array([0.0, 0.0])
+    vectores = []
+    for i, r in enumerate(posiciones):
+        q = q_vals[i] * 1e-6
+        r_vec = np.array([xq, yq]) - np.array(r)
+        r_mag = np.linalg.norm(r_vec)
+        if r_mag < 1e-5:
+            F = np.array([0.0, 0.0])
+        else:
+            F = k * q * 1e-9 / r_mag**3 * r_vec
+        vectores.append(F)
+        F_total += F
+    return vectores, F_total
+
+# Crear figura
+fig, ax = plt.subplots(figsize=(8, 6))
+plt.subplots_adjust(left=0.1, right=0.65, bottom=0.15)
+
+# Configurar ejes
+ax.set_facecolor('black')
+ax.set_xlim(-2, 2)
+ax.set_ylim(-2, 2)
+ax.set_aspect('equal')
+ax.set_title("Campo eléctrico - 4 cargas fijas", color='white', pad=20)
+ax.tick_params(axis='both', colors='lightgray')
+for spine in ax.spines.values():
+    spine.set_color('lightgray')
+
+# Dibujar cargas
+for i, r in enumerate(posiciones):
+    ax.plot(*r, 'o', color='white', markersize=10, markeredgewidth=1, markeredgecolor='white')
+    ax.text(r[0]+0.1, r[1]+0.1, f'q{i+1}', fontsize=12, weight='bold', color='white')
+
+xq0, yq0 = 0.0, 0.0
+vectores, F_total = calcular_fuerzas_totales(xq0, yq0, cargas_valores)
+
+# Configurar flechas
+flechas = []
+for i, F in enumerate(vectores):
+    color = 'cyan' if cargas_valores[i] > 0 else 'magenta'
+    flecha = ax.quiver(xq0, yq0, *F, angles='xy', scale_units='xy', 
+                      scale=1e-5, color=color, width=0.005, zorder=3)
+    flechas.append(flecha)
+
+flecha_total = ax.quiver(xq0, yq0, *F_total, angles='xy', scale_units='xy', 
+                        scale=1e-5, color='yellow', width=0.007, zorder=4)
+
+# Configurar sliders
+sliders = []
+labels = ['x', 'y', 'q1 (µC)', 'q2 (µC)', 'q3 (µC)', 'q4 (µC)']
+inits = [0.0, 0.0] + cargas_valores
+limits = [(-1.5, 1.5), (-1.5, 1.5)] + [(-2.0, 2.0)] * 4
+
+y_pos = 0.70  # Posición vertical inicial de los sliders
+
+for i, (label, val, (vmin, vmax)) in enumerate(zip(labels, inits, limits)):
+    ax_slider = plt.axes([0.75, y_pos - i*0.08, 0.2, 0.04], facecolor='#222222')
+    
+    step = 0.25 if i >= 2 else 0.1
+    
+    s = Slider(
+        ax=ax_slider,
+        label=label,
+        valmin=vmin,
+        valmax=vmax,
+        valinit=val,
+        valstep=step,
+        track_color='#666666',
+        facecolor='cyan',
+        edgecolor='white',
+        color='#AAAAAA',
+    )
+    
+    ax_slider.xaxis.label.set_color('white')
+    ax_slider.tick_params(axis='both', colors='white')
+    ax_slider.spines[:].set_color('white')
+    
+    s.label.set_color('white')
+    s.label.set_fontsize(10)
+    s.valtext.set_color('white')
+    s.valtext.set_fontsize(9)
+    
+    sliders.append(s)
+
+# Función de actualización
+def update(val):
+    xq = sliders[0].val
+    yq = sliders[1].val
+    q_vals = [s.val for s in sliders[2:]]
+
+    vectores, F_total = calcular_fuerzas_totales(xq, yq, q_vals)
+
+    for i, F in enumerate(vectores):
+        flechas[i].set_UVC(*F)
+        flechas[i].set_offsets([xq, yq])
+        flechas[i].set_color('cyan' if q_vals[i] > 0 else 'magenta')
+
+    flecha_total.set_UVC(*F_total)
+    flecha_total.set_offsets([xq, yq])
+    fig.canvas.draw()
+
+for s in sliders:
+    s.on_changed(update)
+
+# Leyenda de colores
+legend_elements = [
+    Rectangle((0,0), 1, 1, color='cyan', label='Fuerza de repulsión'),
+    Rectangle((0,0), 1, 1, color='magenta', label='Fuerza de atracción'),
+    Rectangle((0,0), 1, 1, color='yellow', label='Fuerza resultante')
+]
+
+ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.05, 1), 
+          borderaxespad=0., facecolor='black', edgecolor='lightgray')
+
+# Mostrar la figura en el div
+fig.canvas.draw()
+document.getElementById("loading-message").style.display = "none";
+            `;
+            
+            try {
+                await pyodide.runPythonAsync(code);
+            } catch (error) {
+                loadingMessage.textContent = "Error: " + error.message;
+                console.error(error);
+            }
+        }
+        
+        main();
+    </script>
+</body>
+</html>
